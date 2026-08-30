@@ -1,6 +1,5 @@
 # Dataset
 KuaiRand-Pure/
-data/
 *.tar.gz
 *.zip
 
@@ -9,6 +8,12 @@ __pycache__/
 *.pyc
 .venv/
 venv/
+
+# Outputs
+submission*.csv
+checkpoints/
+outputs/
+*.npz
 
 # IDE and system
 .vscode/
