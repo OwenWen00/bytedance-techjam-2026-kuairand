@@ -171,3 +171,100 @@ print(evaluate(user_ids, labels, scores))   # scores 可以来自任何模型
 | `baseline_scores.json` | 官方发布的分数 + 种子方差 + 收敛参数。 |
 | `submit.py` | 生成 / 校验提交文件。 |
 | `ablation_features.py` | 特征消融实验，可复现「加特征没有收益」那组数字。 |
+
+## Autonomous research agent
+
+The `agent/` package owns the experiment lifecycle, not model algorithms. A trusted driver registers model tools and supplies candidate plans; the orchestrator validates every plan before it can change files or run a tool.
+
+Lifecycle:
+
+`PLAN -> VALIDATE -> RUN -> EVALUATE -> SELECT -> LOG -> PLAN/STOP`
+
+Safety and reproducibility guarantees:
+
+- `data.py`, `evaluate.py`, `baseline.py`, `submit.py`, and `baseline_scores.json` are hashed and treated as immutable.
+- Every tool and parameter is explicitly registered. Commands are argv lists and never free-form shell strings.
+- Editable paths are project-relative and allowlisted; absolute paths, `..`, symlink escapes, and undeclared changes are rejected.
+- Selection uses validation primary only. Test scoring and hidden-test labels are forbidden in research plans.
+- A failed experiment may use one predeclared deterministic fallback, then becomes a failed result with null metrics.
+- State is atomically persisted and resumable. Results and phase events use append-only JSONL.
+- Accepted changes are kept; rejected or failed changes are restored from exact in-memory backups without destructive Git commands.
+
+### Integrated KuaiRand model tools
+
+The production driver `agent.kuairand:build` connects the research loop to four NumPy FM variants under `models/`: official pointwise FM, random-negative Pairwise BPR, warmup/mixed hard-negative BPR, and leakage-safe history/time Pairwise BPR. The Agent receives validation metrics and project-relative artifact paths through one `ToolOutput` contract.
+
+The deterministic no-key planner uses prior evidence and cost to run the comparable baseline first, isolate the BPR loss next, and only then try the higher-cost history feature bundle. Hard-negative BPR remains available as a registered tool but is excluded from the default queue because the tested configuration was already rejected. See [`docs/kuairand_trial_lab_integration.md`](docs/kuairand_trial_lab_integration.md) for the integration boundary and three-seed evidence.
+
+Run the full three-round, validation-only research loop without an API:
+
+```bash
+python3 -m agent \
+  --offline \
+  --data-dir /path/to/KuaiRand-Pure/data \
+  --run-id bpr-history-demo \
+  --max-iterations 3
+```
+
+Run the model-free orchestration fixture used by tests:
+
+```bash
+python3 -m agent.orchestrator \
+  --driver agent.synthetic:build \
+  --run-id synthetic-demo \
+  --max-iterations 3
+```
+
+### CLI and first-run API setup
+
+The primary launch command is now:
+
+```bash
+python3 -m agent \
+  --data-dir /path/to/KuaiRand-Pure/data \
+  --run-id first-run
+```
+
+On first use, when neither a local configuration nor `OPENAI_API_KEY` / `DEEPSEEK_API_KEY` is available, the CLI asks which provider to use, reads the API key without echoing it, asks for the model name, and offers to save the configuration under the user's config directory. The saved JSON file is outside the repository and is created with permission `0600`.
+
+Supported providers:
+
+- OpenAI API (ChatGPT models) through the Responses API. Default model: `gpt-5.4`.
+- DeepSeek through its Chat Completions-compatible API. Default model: `deepseek-v4-pro`.
+
+Useful commands:
+
+```bash
+# Replace the local provider/API configuration
+python3 -m agent --configure
+
+# Display the active provider/model; the key is always masked
+python3 -m agent --show-config
+
+# Run without an external API, using the deterministic planner
+python3 -m agent --offline \
+  --data-dir /path/to/KuaiRand-Pure/data \
+  --run-id offline-demo
+
+# Run only the model-free lifecycle fixture
+python3 -m agent --offline \
+  --driver agent.synthetic:build \
+  --run-id synthetic-demo
+
+# Non-interactive CI; reads the selected provider key from the environment
+KUAI_AGENT_LLM_PROVIDER=openai OPENAI_API_KEY=... \
+  python3 -m agent --non-interactive \
+    --data-dir /path/to/KuaiRand-Pure/data
+```
+
+The LLM is only a planner. Its JSON output still passes through the same schema, tool registry, parameter allowlist, path policy, frozen-file hashes, validation-only selector, and rollback controls. API/network/JSON failures fall back to the driver's deterministic planner and are noted in the plan rationale.
+
+The synthetic driver intentionally demonstrates recovery without training. The default KuaiRand driver runs real recommendation experiments and keeps test scoring outside the Agent-visible interface.
+
+Run the orchestration test suite:
+
+```bash
+python3 -m unittest discover -s tests -v
+```
+
+To integrate another model without changing the orchestrator, implement the `ExperimentTool.run(plan, context) -> ToolOutput` protocol, register it with a `ToolDefinition` and parameter validators, and provide a `MODULE:FUNCTION` driver returning `(ToolRegistry, Planner)`. See `agent.synthetic` for the minimal fixture, `agent.kuairand` for the production adapter, and `docs/open_source_adaptation.md` for design provenance.

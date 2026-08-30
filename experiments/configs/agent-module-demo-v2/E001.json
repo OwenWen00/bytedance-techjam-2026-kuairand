@@ -1,0 +1,27 @@
+{
+  "acceptance_rule": "primary > best_primary + 0.002",
+  "changes": [],
+  "editable_paths": [],
+  "expected_cost": "negligible",
+  "expected_signal": "valid primary improves",
+  "experiment_type": "synthetic",
+  "fallback": {
+    "fail_once": false
+  },
+  "feature_flags": {},
+  "hypothesis": "The controlled change 'exercise deterministic recovery' will improve validation ranking.",
+  "iteration": 1,
+  "model_name": "external-model-placeholder",
+  "params": {
+    "fail_once": true,
+    "score": 0.604
+  },
+  "parent_run_id": "agent-module-demo-v2-E000",
+  "rationale": "Synthetic evidence fixture for the orchestration layer. History: 0 failed, 0 rejected; evidence score 0.7500.",
+  "requested_tool": "synthetic",
+  "run_id": "agent-module-demo-v2",
+  "seed": 0,
+  "single_primary_change": "exercise deterministic recovery",
+  "timeout_minutes": 1.0,
+  "validation_protocol": "train only; evaluate on valid; never score test"
+}

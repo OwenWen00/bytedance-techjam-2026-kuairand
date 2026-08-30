@@ -1,0 +1,7 @@
+{"iteration":0,"phase":"PLAN","run_id":"api-test"}
+{"iteration":0,"phase":"VALIDATE","run_id":"api-test"}
+{"iteration":0,"phase":"RUN","run_id":"api-test"}
+{"attempt":1,"iteration":0,"phase":"EVALUATE","run_id":"api-test"}
+{"accepted":true,"iteration":0,"phase":"SELECT","run_id":"api-test"}
+{"iteration":0,"phase":"LOG","run_id":"api-test","status":"accepted"}
+{"iteration":1,"phase":"STOP","reason":"max_iterations","run_id":"api-test"}

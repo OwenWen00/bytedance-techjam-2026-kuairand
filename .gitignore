@@ -7,15 +7,33 @@ KuaiRand-Pure/
 __pycache__/
 *.pyc
 .venv/
+.venv*/
 venv/
+.env
+.env.*
+!.env.example
 
 # Outputs
 submission*.csv
 checkpoints/
 outputs/
 *.npz
+experiments/checkpoints/
+experiments/predictions/
+experiments/submissions/
+experiments/logs/*/stdout.log
+experiments/logs/*/stderr.log
+experiments/logs/**/stdout.log
+experiments/logs/**/stderr.log
+experiments/logs/**/*.npz
+experiments/logs/**/*predictions.csv
+
+# Local pre-commit integration probe; reproducible evidence uses a committed SHA.
+experiments/configs/integrated-model-demo/
+experiments/logs/integrated-model-demo/
 
 # IDE and system
 .vscode/
 .idea/
 Thumbs.db
+.DS_Store

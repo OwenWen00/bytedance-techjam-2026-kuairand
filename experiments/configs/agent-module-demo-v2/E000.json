@@ -1,0 +1,25 @@
+{
+  "acceptance_rule": "primary > best_primary + 0.002",
+  "changes": [],
+  "editable_paths": [],
+  "expected_cost": "negligible",
+  "expected_signal": "valid primary improves",
+  "experiment_type": "synthetic",
+  "fallback": {},
+  "feature_flags": {},
+  "hypothesis": "The controlled change 'establish controlled baseline' will improve validation ranking.",
+  "iteration": 0,
+  "model_name": "external-model-placeholder",
+  "params": {
+    "fail_once": false,
+    "score": 0.6
+  },
+  "parent_run_id": null,
+  "rationale": "Synthetic evidence fixture for the orchestration layer. History: 0 failed, 0 rejected; evidence score 1.0000.",
+  "requested_tool": "synthetic",
+  "run_id": "agent-module-demo-v2",
+  "seed": 0,
+  "single_primary_change": "establish controlled baseline",
+  "timeout_minutes": 1.0,
+  "validation_protocol": "train only; evaluate on valid; never score test"
+}
