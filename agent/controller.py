@@ -4,6 +4,7 @@ import datetime as dt
 import json
 import math
 import subprocess
+import time
 import uuid
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -11,8 +12,8 @@ from typing import Any, Dict, Optional
 from agent.decision import choose_decision
 from agent.evaluator import evaluate_agent_metrics
 from agent.logger import ExperimentLogger
-from agent.planner import ExperimentPlanner
-from agent.runner import DryRunRunner
+from agent.planner import ExperimentPlanner, E004_CONFIG_PATH, REAL_CONFIG_PATH
+from agent.runner import DryRunRunner, RealRunner
 
 ROOT = Path(__file__).resolve().parent.parent
 E001_PATH = ROOT / "configs" / "E001_fm.json"
@@ -147,6 +148,133 @@ class DryRunController:
         return summary
 
 
-def run_agent(max_iterations: int = 3, log_path: Optional[str | Path] = None) -> Dict[str, Any]:
+class RealController:
+    def __init__(self, log_path: Optional[str | Path] = None, config_path: Optional[str | Path] = None):
+        target = Path(config_path) if config_path is not None else REAL_CONFIG_PATH
+        if str(target).endswith("E004_bpr_fm.json"):
+            target = E004_CONFIG_PATH
+        self.planner = ExperimentPlanner(config_path=target)
+        self.runner = RealRunner()
+        self.current_best_experiment_id = "E001_fm"
+        self.current_best_primary = _resolve_reference_primary()
+        self.log_path = Path(log_path) if log_path is not None else self._build_log_path()
+        self.logger = ExperimentLogger(self.log_path)
+
+    def _build_log_path(self) -> Path:
+        LOG_DIR.mkdir(parents=True, exist_ok=True)
+        while True:
+            unique_name = f"real_validation_{dt.datetime.now(dt.timezone.utc).strftime('%Y%m%dT%H%M%S')}_{uuid.uuid4().hex[:8]}.jsonl"
+            candidate = LOG_DIR / unique_name
+            if not candidate.exists():
+                return candidate
+
+    def _write_failure_record(self, plan: Dict[str, Any], error: str, command: str) -> None:
+        record = {
+            "experiment_id": plan.get("experiment_id", "unknown"),
+            "parent_id": self.current_best_experiment_id,
+            "hypothesis": plan.get("hypothesis", "unknown"),
+            "configuration": {
+                **plan.get("model_config", plan.get("configuration", {})),
+                "mode": "real_validation",
+                "strategy": plan.get("strategy", "unknown"),
+            },
+            "seed": plan.get("seed", 0),
+            "command": command,
+            "git_revision": _current_git_revision(),
+            "metrics": {"validation": {}},
+            "status": "failed",
+            "decision": "ERROR",
+            "error": str(error),
+            "recovery": "not_attempted_e005_out_of_scope",
+            "wall_clock_sec": 0.0,
+            "llm_tokens": {"prompt": 0, "completion": 0, "total": 0},
+            "manual_interventions": [],
+            "timestamp": dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        }
+        self.logger.append(record)
+
+    def run_real_loop(self, max_iterations: int = 1) -> Dict[str, Any]:
+        if max_iterations <= 0:
+            raise ValueError("max_iterations must be a positive integer.")
+
+        iterations_run = 0
+        accepted = 0
+        rejected = 0
+
+        while iterations_run < max_iterations:
+            plan = self.planner.next_plan(max_iterations=max_iterations)
+            if plan is None:
+                break
+
+            record_parent_id = self.current_best_experiment_id
+            start = time.perf_counter()
+            command = None
+            try:
+                result = self.runner.run(plan)
+                command = result.get("command")
+                metrics = {"GAUC": result["GAUC"], "nDCG@5": result["nDCG@5"]}
+                candidate_primary = 0.5 * (metrics["GAUC"] + metrics["nDCG@5"])
+                decision = choose_decision(candidate_primary, self.current_best_primary)
+                if decision == "ACCEPT":
+                    self.current_best_primary = candidate_primary
+                    self.current_best_experiment_id = plan["experiment_id"]
+                    accepted += 1
+                else:
+                    rejected += 1
+
+                record = {
+                    "experiment_id": plan["experiment_id"],
+                    "parent_id": record_parent_id,
+                    "hypothesis": plan["hypothesis"],
+                    "configuration": {
+                        **plan.get("model_config", {}),
+                        "mode": "real_validation",
+                        "strategy": plan.get("strategy", "unknown"),
+                        "split": "validation",
+                    },
+                    "seed": plan.get("seed", 0),
+                    "command": command,
+                    "git_revision": _current_git_revision(),
+                    "metrics": {"validation": {"GAUC": metrics["GAUC"], "nDCG@5": metrics["nDCG@5"], "primary": candidate_primary}},
+                    "status": "completed",
+                    "decision": decision,
+                    "error": "no_error",
+                    "recovery": "no_recovery_required",
+                    "wall_clock_sec": time.perf_counter() - start,
+                    "llm_tokens": {"prompt": 0, "completion": 0, "total": 0},
+                    "manual_interventions": [],
+                    "timestamp": dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                }
+                self.logger.append(record)
+                print(
+                    f"Iteration {iterations_run + 1}: {decision} | {plan['experiment_id']} | "
+                    f"primary={candidate_primary:.4f} | prev_best={self.current_best_primary:.4f}"
+                )
+            except Exception as exc:  # no retry or recovery in E003-B
+                self._write_failure_record(plan, str(exc), command or "real_validation: command_not_executed")
+                raise
+
+            iterations_run += 1
+
+        summary = {
+            "iterations_run": iterations_run,
+            "accepted": accepted,
+            "rejected": rejected,
+            "best_experiment_id": self.current_best_experiment_id,
+            "best_primary": self.current_best_primary,
+            "log_path": str(self.log_path),
+        }
+        return summary
+
+
+def run_agent(
+    max_iterations: int = 3,
+    log_path: Optional[str | Path] = None,
+    mode: str = "dry_run",
+    config_path: Optional[str | Path] = None,
+) -> Dict[str, Any]:
+    if mode == "real":
+        controller = RealController(log_path=log_path, config_path=config_path)
+        return controller.run_real_loop(max_iterations=max_iterations)
     controller = DryRunController(log_path=log_path)
     return controller.run_dry_run_loop(max_iterations=max_iterations)

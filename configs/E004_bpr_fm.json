@@ -1,0 +1,19 @@
+[
+  {
+    "experiment_id": "E004_bpr_fm_seed0",
+    "hypothesis": "Pairwise BPR-FM should improve validation ranking by learning same-user positive-vs-negative preferences on train-only data.",
+    "strategy": "pairwise_bpr_fm",
+    "seed": 0,
+    "model_config": {
+      "k": 16,
+      "lr": 0.001,
+      "batch": 512,
+      "max_epochs": 20,
+      "patience": 3,
+      "max_pairs_per_user": 64,
+      "fields": ["user_id", "video_id", "author_id", "tab", "dur_bucket"]
+    },
+    "split": "validation",
+    "mode": "real_validation"
+  }
+]
