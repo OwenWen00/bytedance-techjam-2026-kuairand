@@ -1,0 +1,44 @@
+{
+  "acceptance_rule": "valid primary improves over the accepted best by more than 0.002",
+  "changes": [
+    {
+      "new_text": "{\"variant\": \"pairwise_bpr\"}\n",
+      "old_text": "",
+      "path": "experiments/configs/integrated-model-evidence/E001-active-variant.json"
+    }
+  ],
+  "editable_paths": [
+    "experiments/configs/integrated-model-evidence/E001-active-variant.json"
+  ],
+  "expected_cost": "CPU-only; full train and validation split",
+  "expected_signal": "GAUC and nDCG@5 produce a higher validation primary",
+  "experiment_type": "offline_recommendation_ranking",
+  "fallback": {
+    "batch_size": 4096
+  },
+  "feature_flags": {
+    "pairwise_loss": true,
+    "time_safe_history": false
+  },
+  "hypothesis": "A ranking-aligned pairwise loss should improve valid primary over pointwise FM.",
+  "iteration": 1,
+  "model_name": "numpy-factorization-machine",
+  "params": {
+    "batch_size": 8192,
+    "epochs": 40,
+    "k": 16,
+    "l2": 1e-06,
+    "lr": 0.001,
+    "max_pairs_per_epoch": 0,
+    "negative_per_positive": 1,
+    "patience": 4
+  },
+  "parent_run_id": "integrated-model-evidence-E000",
+  "rationale": "This is the lowest-cost isolated change after baseline and has positive three-seed evidence. History: 0 failed, 0 rejected; evidence score 0.0015.",
+  "requested_tool": "run_pairwise_bpr",
+  "run_id": "integrated-model-evidence",
+  "seed": 0,
+  "single_primary_change": "replace pointwise logloss with within-user pairwise BPR",
+  "timeout_minutes": 60.0,
+  "validation_protocol": "Train on the official train split, select checkpoints on valid primary only, and never score or expose test to the Agent."
+}

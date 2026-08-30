@@ -1,0 +1,50 @@
+{
+  "status": "complete",
+  "best_epoch": 6,
+  "valid": {
+    "GAUC": 0.6697043776512146,
+    "nDCG@5": 0.5375710129737854,
+    "primary": 0.6036376953125,
+    "delta_vs_official_valid_fm": 0.0020377039909362793
+  },
+  "test": null,
+  "runtime_seconds": 16.956,
+  "config": {
+    "training_mode": "pairwise",
+    "encoder_mode": "history",
+    "negative_strategy": "random",
+    "features": [
+      "user_id",
+      "video_id",
+      "author_id",
+      "tab",
+      "dur_bucket",
+      "hour_bucket",
+      "weekday",
+      "user_past_count_bucket",
+      "user_past_long_view_rate_bucket",
+      "item_past_count_bucket",
+      "item_past_long_view_rate_bucket"
+    ],
+    "k": 16,
+    "lr": 0.001,
+    "l2": 1e-06,
+    "epochs": 40,
+    "batch_size": 8192,
+    "patience": 4,
+    "seed": 0,
+    "negative_per_positive": 1,
+    "hard_candidates": 5,
+    "hard_negative_warmup": 3,
+    "hard_negative_ratio": 0.5,
+    "max_pairs_per_epoch": 0,
+    "train_rows": 1141112,
+    "valid_rows": 124909,
+    "smoke_test": false
+  },
+  "artifacts": {
+    "checkpoint": "best_model.npz",
+    "epoch_log": "epochs.jsonl",
+    "validation_predictions": "validation_predictions.csv"
+  }
+}

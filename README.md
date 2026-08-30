@@ -196,6 +196,8 @@ The production driver `agent.kuairand:build` connects the research loop to four 
 
 The deterministic no-key planner uses prior evidence and cost to run the comparable baseline first, isolate the BPR loss next, and only then try the higher-cost history feature bundle. Hard-negative BPR remains available as a registered tool but is excluded from the default queue because the tested configuration was already rejected. See [`docs/kuairand_trial_lab_integration.md`](docs/kuairand_trial_lab_integration.md) for the integration boundary and three-seed evidence.
 
+The committed full-data acceptance run selected history/time Pairwise at validation primary `0.603638`, a `+0.002168` improvement over its same-run pointwise baseline. This is a validation result, not a hidden-test claim.
+
 Run the full three-round, validation-only research loop without an API:
 
 ```bash

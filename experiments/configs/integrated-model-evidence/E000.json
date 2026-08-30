@@ -1,0 +1,34 @@
+{
+  "acceptance_rule": "valid primary improves over the accepted best by more than 0.002",
+  "changes": [],
+  "editable_paths": [],
+  "expected_cost": "CPU-only; full train and validation split",
+  "expected_signal": "GAUC and nDCG@5 produce a higher validation primary",
+  "experiment_type": "offline_recommendation_ranking",
+  "fallback": {
+    "batch_size": 4096
+  },
+  "feature_flags": {
+    "pairwise_loss": false,
+    "time_safe_history": false
+  },
+  "hypothesis": "The integrated implementation should reproduce the official validation baseline.",
+  "iteration": 0,
+  "model_name": "numpy-factorization-machine",
+  "params": {
+    "batch_size": 8192,
+    "epochs": 40,
+    "k": 16,
+    "l2": 1e-06,
+    "lr": 0.001,
+    "patience": 4
+  },
+  "parent_run_id": null,
+  "rationale": "A comparable baseline is required before any alternative can be accepted. History: 0 failed, 0 rejected; evidence score 1.0000.",
+  "requested_tool": "run_pointwise_fm",
+  "run_id": "integrated-model-evidence",
+  "seed": 0,
+  "single_primary_change": "establish the official five-field pointwise FM baseline",
+  "timeout_minutes": 60.0,
+  "validation_protocol": "Train on the official train split, select checkpoints on valid primary only, and never score or expose test to the Agent."
+}

@@ -37,6 +37,18 @@ The pre-integration trial lab reported official full-validation primary scores o
 
 These are validation-only model-selection results. They do not claim a hidden-test or online result. Integrated runs independently write their config, epoch log, best checkpoint, aligned validation predictions, summary, stdout and stderr into the Agent experiment record.
 
+## Integrated acceptance run
+
+Run `integrated-model-evidence` executed all three full-data iterations from implementation commit `93871d148fc73d0ad8bcbe2b26c041f6bb7ce415`:
+
+| Iteration | Decision | GAUC | nDCG@5 | Primary | delta vs accepted best |
+|---|---|---:|---:|---:|---:|
+| Pointwise FM | accepted baseline | 0.667133 | 0.535806 | 0.601470 | — |
+| Pairwise BPR | rejected | 0.669711 | 0.537082 | 0.603396 | +0.001927 |
+| History/time Pairwise | accepted | 0.669704 | 0.537571 | 0.603638 | +0.002168 |
+
+The run used `token_usage=0` and `gpu_hours=0.0`, stopped at the configured three-iteration bound, and never scored test. The rejected BPR marker was removed; the accepted history marker was kept. The accepted validation prediction file passed the frozen `submit.py --check --split valid` check for all 124,909 rows.
+
 ## Direct connectivity check
 
 The direct model CLI has a smoke mode for code connectivity only. It cannot be selected through the Agent tool:

@@ -1,0 +1,27 @@
+{
+  "training_mode": "pointwise",
+  "encoder_mode": "official",
+  "negative_strategy": "random",
+  "features": [
+    "user_id",
+    "video_id",
+    "author_id",
+    "tab",
+    "dur_bucket"
+  ],
+  "k": 16,
+  "lr": 0.001,
+  "l2": 1e-06,
+  "epochs": 40,
+  "batch_size": 8192,
+  "patience": 4,
+  "seed": 0,
+  "negative_per_positive": 1,
+  "hard_candidates": 5,
+  "hard_negative_warmup": 3,
+  "hard_negative_ratio": 0.5,
+  "max_pairs_per_epoch": 0,
+  "train_rows": 1141112,
+  "valid_rows": 124909,
+  "smoke_test": false
+}
