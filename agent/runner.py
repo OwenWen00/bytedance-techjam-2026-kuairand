@@ -20,6 +20,7 @@ STRATEGY_MODULES = {
     "validation_only_fm_k8": "experiments.fm_validation",
     "validation_only_fm_k32": "experiments.fm_validation",
     "recovery_demo": "experiments.recovery_demo",
+    "fm_history_validation": "experiments.fm_history_validation",
 }
 
 STRATEGY_ALLOWED_KEYS = {
@@ -29,6 +30,7 @@ STRATEGY_ALLOWED_KEYS = {
     "validation_only_fm_k32": {"k", "lr", "batch", "max_epochs", "patience", "fields"},
     "pairwise_bpr_fm": {"k", "lr", "batch", "max_epochs", "patience", "max_pairs_per_user", "fields"},
     "recovery_demo": {"failure_mode", "mode", "sleep_sec", "ga", "ndcg"},
+    "fm_history_validation": {"k", "lr", "batch", "max_epochs", "patience"},
 }
 
 

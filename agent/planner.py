@@ -15,6 +15,7 @@ STRATEGY_MODULES = {
     "validation_only_fm_k8": "experiments.fm_validation",
     "validation_only_fm_k32": "experiments.fm_validation",
     "recovery_demo": "experiments.recovery_demo",
+    "fm_history_validation": "experiments.fm_history_validation",
 }
 
 
