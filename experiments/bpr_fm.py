@@ -10,6 +10,32 @@ from evaluate import evaluate
 from experiments.sampling import sample_same_user_pairs
 
 
+def save_checkpoint(model, path: str | Path) -> Path:
+    checkpoint_path = Path(path)
+    checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "V": np.asarray(model.V, dtype=np.float32),
+        "W": np.asarray(model.W, dtype=np.float32),
+        "b": np.asarray(model.b, dtype=np.float32),
+    }
+    if hasattr(model, "t"):
+        payload["t"] = np.asarray(int(model.t), dtype=np.int64)
+    np.savez(checkpoint_path, **payload)
+    return checkpoint_path
+
+
+def load_checkpoint(path: str | Path, model_cls, **kwargs):
+    checkpoint_path = Path(path)
+    with np.load(checkpoint_path, allow_pickle=False) as payload:
+        model = model_cls(**kwargs)
+        model.V = np.asarray(payload["V"], dtype=np.float32).copy()
+        model.W = np.asarray(payload["W"], dtype=np.float32).copy()
+        model.b = np.asarray(payload["b"], dtype=np.float32).copy()
+        if "t" in payload:
+            model.t = int(np.asarray(payload["t"]).item())
+        return model
+
+
 def sigmoid(x):
     return 1.0 / (1.0 + np.exp(-np.clip(x, -30.0, 30.0)))
 
@@ -108,6 +134,7 @@ def _build_parser():
     parser.add_argument("--max-pairs-per-user", type=int, default=64)
     parser.add_argument("--data-dir", default="./KuaiRand-Pure/data")
     parser.add_argument("--result-path", required=True)
+    parser.add_argument("--checkpoint-path", default=None)
     return parser
 
 
@@ -165,6 +192,8 @@ def main():
 
     final_scores = model.predict(Xva)
     final_metrics = evaluate(uva, yva, final_scores)
+    checkpoint_path = Path(args.checkpoint_path) if args.checkpoint_path else Path("artifacts/checkpoints") / f"{args.experiment_id}.npz"
+    checkpoint_path = save_checkpoint(model, checkpoint_path)
     result = {
         "experiment_id": args.experiment_id,
         "split": "validation",
@@ -176,6 +205,7 @@ def main():
             "seed": args.seed,
             "model": "BPR-FM",
             "strategy": "pairwise_bpr_fm",
+            "checkpoint_path": str(checkpoint_path),
             "configuration": {
                 "k": args.k,
                 "lr": args.lr,

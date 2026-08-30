@@ -11,6 +11,10 @@ E004_CONFIG_PATH = ROOT / "configs" / "E004_bpr_fm.json"
 STRATEGY_MODULES = {
     "fm_validation": "experiments.fm_validation",
     "pairwise_bpr_fm": "experiments.bpr_fm",
+    "validation_only_fm_repro": "experiments.fm_validation",
+    "validation_only_fm_k8": "experiments.fm_validation",
+    "validation_only_fm_k32": "experiments.fm_validation",
+    "recovery_demo": "experiments.recovery_demo",
 }
 
 
@@ -28,6 +32,10 @@ def resolve_strategy_module(strategy: str) -> str:
 class ExperimentPlanner:
     def __init__(self, config_path: str | Path = CONFIG_PATH):
         self.config_path = Path(config_path)
+        if not self.config_path.exists() and not self.config_path.is_absolute():
+            candidate = ROOT / "configs" / self.config_path.name
+            if candidate.exists():
+                self.config_path = candidate
         self.plans: List[Dict[str, Any]] = self._load_plans()
         self._index = 0
 

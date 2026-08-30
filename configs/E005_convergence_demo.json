@@ -1,0 +1,23 @@
+[
+  {
+    "experiment_id": "converge_001",
+    "hypothesis": "A tiny improvement over the reference should count as a non-significant accept and reset the convergence counter.",
+    "strategy": "recovery_demo",
+    "seed": 0,
+    "model_config": {"failure_mode": "none", "mode": "validation", "sleep_sec": 0.0, "ga": 0.6020, "ndcg": 0.6020}
+  },
+  {
+    "experiment_id": "converge_002",
+    "hypothesis": "A slightly lower score should be rejected and increment the no-improvement counter to two.",
+    "strategy": "recovery_demo",
+    "seed": 0,
+    "model_config": {"failure_mode": "none", "mode": "validation", "sleep_sec": 0.0, "ga": 0.6019, "ndcg": 0.6019}
+  },
+  {
+    "experiment_id": "converge_003",
+    "hypothesis": "An equal score should be rejected and complete the three-strike convergence sequence.",
+    "strategy": "recovery_demo",
+    "seed": 0,
+    "model_config": {"failure_mode": "none", "mode": "validation", "sleep_sec": 0.0, "ga": 0.6020, "ndcg": 0.6020}
+  }
+]
