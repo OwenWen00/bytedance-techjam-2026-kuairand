@@ -13,6 +13,8 @@ venv/
 submission*.csv
 checkpoints/
 outputs/
+artifacts/
+logs/*.jsonl
 *.npz
 
 # IDE and system

@@ -1,0 +1,23 @@
+{
+  "experiment_id": "E001_fm",
+  "name": "official_fm_baseline",
+  "description": "Reference metadata for the official factorization machine baseline used in the KuaiRand task.",
+  "model_family": "fm",
+  "selection_split": "validation",
+  "reference_baseline": true,
+  "status": "reference",
+  "configuration": {
+    "source": "baseline.py",
+    "split_strategy": "official_train_validation_test",
+    "selection_split": "validation",
+    "notes": "Validation is the experiment-selection split, and the official validation metrics are embedded here for reference."
+  },
+  "metrics": {
+    "validation": {
+      "GAUC": 0.6674,
+      "nDCG@5": 0.5357,
+      "primary": 0.6016
+    }
+  },
+  "hypothesis": "The official FM baseline remains the reproducible reference point for comparison."
+}
