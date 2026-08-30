@@ -1,0 +1,16 @@
+# Dataset
+KuaiRand-Pure/
+data/
+*.tar.gz
+*.zip
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# IDE and system
+.vscode/
+.idea/
+Thumbs.db
