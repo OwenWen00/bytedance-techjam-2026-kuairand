@@ -1,0 +1,50 @@
+[
+  {
+    "experiment_id": "E003_fm_repro",
+    "hypothesis": "The validation-only wrapper should reproduce the official FM baseline.",
+    "strategy": "validation_only_fm_repro",
+    "seed": 0,
+    "model_config": {
+      "k": 16,
+      "lr": 0.001,
+      "batch": 8192,
+      "max_epochs": 40,
+      "patience": 4,
+      "fields": ["user_id", "video_id", "author_id", "tab", "dur_bucket"]
+    },
+    "split": "validation",
+    "mode": "real_validation"
+  },
+  {
+    "experiment_id": "E003_fm_k8",
+    "hypothesis": "Lower interaction capacity may reduce overfitting.",
+    "strategy": "validation_only_fm_k8",
+    "seed": 0,
+    "model_config": {
+      "k": 8,
+      "lr": 0.001,
+      "batch": 8192,
+      "max_epochs": 40,
+      "patience": 4,
+      "fields": ["user_id", "video_id", "author_id", "tab", "dur_bucket"]
+    },
+    "split": "validation",
+    "mode": "real_validation"
+  },
+  {
+    "experiment_id": "E003_fm_k32",
+    "hypothesis": "Higher interaction capacity may capture additional feature interactions.",
+    "strategy": "validation_only_fm_k32",
+    "seed": 0,
+    "model_config": {
+      "k": 32,
+      "lr": 0.001,
+      "batch": 8192,
+      "max_epochs": 40,
+      "patience": 4,
+      "fields": ["user_id", "video_id", "author_id", "tab", "dur_bucket"]
+    },
+    "split": "validation",
+    "mode": "real_validation"
+  }
+]

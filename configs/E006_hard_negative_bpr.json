@@ -1,0 +1,20 @@
+[
+  {
+    "experiment_id": "E006_hard_negative_bpr_seed0",
+    "hypothesis": "Selecting difficult same-user negative impressions using current model scores should improve validation within-user ranking compared with uniform same-user BPR sampling.",
+    "strategy": "hard_negative_bpr_fm",
+    "seed": 0,
+    "model_config": {
+      "k": 16,
+      "lr": 0.001,
+      "batch": 512,
+      "max_epochs": 20,
+      "patience": 3,
+      "max_pairs_per_user": 64,
+      "hard_negative_candidates": 64,
+      "fields": ["user_id", "video_id", "author_id", "tab", "dur_bucket"]
+    },
+    "split": "validation",
+    "mode": "real_validation"
+  }
+]

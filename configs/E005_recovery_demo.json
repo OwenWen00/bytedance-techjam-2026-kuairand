@@ -1,0 +1,35 @@
+[
+  {
+    "experiment_id": "recovery_try_1",
+    "hypothesis": "A synthetic timeout should trigger a single retry and recover to a stable validation score.",
+    "strategy": "recovery_demo",
+    "seed": 0,
+    "model_config": {
+      "failure_mode": "timeout",
+      "mode": "validation",
+      "sleep_sec": 0.0
+    }
+  },
+  {
+    "experiment_id": "recovery_try_2",
+    "hypothesis": "A failing recovery attempt should still retain the best checkpoint and fallback to the previous best candidate.",
+    "strategy": "recovery_demo",
+    "seed": 0,
+    "model_config": {
+      "failure_mode": "error",
+      "mode": "validation",
+      "sleep_sec": 0.0
+    }
+  },
+  {
+    "experiment_id": "recovery_try_3",
+    "hypothesis": "The successful retry should become the winner after the failed attempt is recovered.",
+    "strategy": "recovery_demo",
+    "seed": 0,
+    "model_config": {
+      "failure_mode": "none",
+      "mode": "validation",
+      "sleep_sec": 0.0
+    }
+  }
+]

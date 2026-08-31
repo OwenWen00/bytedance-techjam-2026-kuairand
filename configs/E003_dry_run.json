@@ -2,6 +2,7 @@
   {
     "experiment_id": "dry_run_001",
     "hypothesis": "A slightly lower synthetic validation primary should be rejected to preserve the official baseline.",
+    "strategy": "synthetic_reject_lower_primary",
     "configuration": {
       "mode": "dry_run",
       "synthetic": true,
@@ -20,6 +21,7 @@
   {
     "experiment_id": "dry_run_002",
     "hypothesis": "A higher synthetic validation primary should be accepted and become the new best reference.",
+    "strategy": "synthetic_accept_higher_primary",
     "configuration": {
       "mode": "dry_run",
       "synthetic": true,
@@ -38,6 +40,7 @@
   {
     "experiment_id": "dry_run_003",
     "hypothesis": "A marginally lower synthetic validation primary should be rejected even after an acceptance.",
+    "strategy": "synthetic_reject_after_accept",
     "configuration": {
       "mode": "dry_run",
       "synthetic": true,
