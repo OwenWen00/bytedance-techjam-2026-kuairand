@@ -20,10 +20,14 @@ Every non-baseline deterministic plan also creates one run-scoped `E###-active-v
 The deterministic no-key planner starts with the comparable pointwise baseline. It then prefers the lower-cost isolated BPR loss change before the history feature bundle. This supports the intended three-step demo:
 
 1. Establish pointwise FM baseline.
-2. Evaluate pairwise BPR; reject it if the improvement is not greater than `0.002`.
-3. Evaluate leakage-safe history/time Pairwise; accept it only if valid primary clears the same threshold.
+2. Evaluate pairwise BPR; keep it as the validation best if its primary is strictly higher.
+3. Evaluate leakage-safe history/time Pairwise; likewise keep any strict new best while measuring cumulative progress against the convergence reference.
 
 Hard-negative BPR remains registered for an LLM-authored plan, but it is intentionally absent from the deterministic queue because the existing evidence rejected the tested configuration. This prevents the fallback planner from spending budget repeating a known non-improvement.
+
+The three canonical comparisons are only the initialization stage. If the orchestration budget and convergence rule still allow work, the planner selects the highest accepted validation result and generates one-parameter neighbors of its exact executed configuration. Learning rate, regularization, pair count/sampling, batch size, patience, and epoch-budget values come from a declared per-tool search space. The planner interleaves dimensions rather than exhausting one dimension first, and configuration fingerprints prevent repeats even when a plan has a different natural-language hypothesis. Any strict new validation best becomes the next search anchor; epsilon is reserved for convergence significance rather than checkpoint selection.
+
+Every result records `params`, `seed`, `feature_flags`, and `plan_fingerprint`. This is especially important after deterministic recovery because the ledger records the configuration that actually executed, not just the original requested plan. It also records `planner_source`, `planner_error`, and a bounded planner response excerpt, making LLM-to-deterministic fallback directly auditable. The default convergence definition is three consecutive iterations without a cumulative gain greater than `0.002` from the last convergence reference; longer exploratory runs must raise `--convergence-patience` explicitly while remaining bounded by 50 iterations and six hours.
 
 ## Existing validation evidence
 

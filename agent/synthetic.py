@@ -34,7 +34,9 @@ def _plan(change: str, score: float, fail_once: bool = False,
         params={"score": score, "fail_once": fail_once}, seed=0,
         timeout_minutes=1.0, expected_cost="negligible",
         validation_protocol="train only; evaluate on valid; never score test",
-        acceptance_rule="primary > best_primary + 0.002", editable_paths=[],
+        acceptance_rule=(
+            "any higher primary updates best; cumulative gain > 0.002 resets convergence"
+        ), editable_paths=[],
         requested_tool="synthetic", expected_signal="valid primary improves",
         fallback=dict(fallback or {}),
     )

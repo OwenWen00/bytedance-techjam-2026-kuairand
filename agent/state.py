@@ -15,6 +15,7 @@ class RunState:
     phase: str = "INIT"
     next_iteration: int = 0
     best_primary: Optional[float] = None
+    convergence_reference_primary: Optional[float] = None
     best_result_run_id: Optional[str] = None
     best_artifacts: List[str] = field(default_factory=list)
     consecutive_no_improvement: int = 0

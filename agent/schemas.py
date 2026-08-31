@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, fields
+import hashlib
+import json
 from typing import Any, Dict, List, Optional
 
 
@@ -13,6 +15,25 @@ class SchemaError(ValueError):
 def _require_text(name: str, value: str) -> None:
     if not isinstance(value, str) or not value.strip():
         raise SchemaError("%s must be a non-empty string" % name)
+
+
+def config_fingerprint(requested_tool: str, params: Dict[str, Any], seed: int,
+                       feature_flags: Dict[str, bool]) -> str:
+    """Return a stable identity for the model configuration that is executed."""
+    payload = {
+        "requested_tool": requested_tool,
+        "params": params,
+        "seed": seed,
+        "feature_flags": feature_flags,
+    }
+    try:
+        canonical = json.dumps(
+            payload, sort_keys=True, separators=(",", ":"),
+            ensure_ascii=True, allow_nan=False,
+        ).encode("utf-8")
+    except (TypeError, ValueError) as error:
+        raise SchemaError("experiment configuration must be JSON serializable: %s" % error)
+    return hashlib.sha256(canonical).hexdigest()
 
 
 @dataclass(frozen=True)
@@ -62,17 +83,35 @@ class ExperimentPlan:
             "expected_signal",
         ):
             _require_text(name, getattr(self, name))
+        if not isinstance(self.iteration, int) or isinstance(self.iteration, bool):
+            raise SchemaError("iteration must be an integer")
         if self.iteration < 0:
             raise SchemaError("iteration must be non-negative")
+        if self.parent_run_id is not None:
+            _require_text("parent_run_id", self.parent_run_id)
         if not isinstance(self.seed, int) or isinstance(self.seed, bool):
             raise SchemaError("seed must be an integer")
+        if (not isinstance(self.timeout_minutes, (int, float))
+                or isinstance(self.timeout_minutes, bool)):
+            raise SchemaError("timeout_minutes must be numeric")
         if not 0 < float(self.timeout_minutes) <= 360:
             raise SchemaError("timeout_minutes must be in (0, 360]")
         if not isinstance(self.feature_flags, dict) or not isinstance(self.params, dict):
             raise SchemaError("feature_flags and params must be mappings")
+        if not all(isinstance(name, str) and isinstance(enabled, bool)
+                   for name, enabled in self.feature_flags.items()):
+            raise SchemaError("feature_flags must map strings to booleans")
+        if not isinstance(self.fallback, dict):
+            raise SchemaError("fallback must be a mapping")
         if not isinstance(self.editable_paths, list):
             raise SchemaError("editable_paths must be a list")
+        if not all(isinstance(path, str) for path in self.editable_paths):
+            raise SchemaError("editable_paths must contain strings")
+        if not isinstance(self.changes, list):
+            raise SchemaError("changes must be a list")
         for change in self.changes:
+            if not isinstance(change, FileChange):
+                raise SchemaError("changes must contain FileChange objects")
             change.validate()
 
     def to_dict(self) -> Dict[str, Any]:
@@ -80,9 +119,38 @@ class ExperimentPlan:
 
     @classmethod
     def from_dict(cls, value: Dict[str, Any]) -> "ExperimentPlan":
+        if not isinstance(value, dict):
+            raise SchemaError("experiment plan must be a JSON object")
         data = dict(value)
-        data["changes"] = [FileChange(**item) for item in data.get("changes", [])]
-        plan = cls(**data)
+        allowed = {item.name for item in fields(cls)}
+        unknown = sorted(set(data) - allowed)
+        if unknown:
+            raise SchemaError("unknown experiment plan fields: %s" % ", ".join(unknown))
+
+        # Models commonly emit null for optional collections. Normalize those
+        # values before constructing the dataclass so malformed model output is
+        # reported as SchemaError rather than leaking an unhelpful TypeError.
+        for name, empty in (("changes", []), ("editable_paths", []), ("fallback", {})):
+            if data.get(name) is None:
+                data[name] = empty
+        raw_changes = data.get("changes", [])
+        if not isinstance(raw_changes, list):
+            raise SchemaError("changes must be an array or null")
+        changes = []
+        for index, item in enumerate(raw_changes):
+            if not isinstance(item, dict):
+                raise SchemaError("changes[%d] must be an object" % index)
+            try:
+                change = FileChange(**item)
+            except TypeError as error:
+                raise SchemaError("invalid changes[%d]: %s" % (index, error))
+            change.validate()
+            changes.append(change)
+        data["changes"] = changes
+        try:
+            plan = cls(**data)
+        except TypeError as error:
+            raise SchemaError("invalid experiment plan fields: %s" % error)
         plan.validate()
         return plan
 
@@ -117,6 +185,13 @@ class ExperimentResult:
     decision_rationale: str
     requested_tool: str
     attempt: int = 1
+    params: Dict[str, Any] = field(default_factory=dict)
+    seed: int = 0
+    feature_flags: Dict[str, bool] = field(default_factory=dict)
+    plan_fingerprint: Optional[str] = None
+    planner_source: str = "deterministic"
+    planner_error: Optional[str] = None
+    planner_response_excerpt: Optional[str] = None
 
     def validate(self) -> None:
         if self.status not in ("accepted", "rejected", "failed"):
@@ -133,6 +208,19 @@ class ExperimentResult:
             raise SchemaError("resource values must be non-negative")
         if self.human_intervention and not self.human_intervention_reason:
             raise SchemaError("human intervention requires a reason")
+        if not isinstance(self.params, dict) or not isinstance(self.feature_flags, dict):
+            raise SchemaError("result params and feature_flags must be mappings")
+        if not isinstance(self.seed, int) or isinstance(self.seed, bool):
+            raise SchemaError("result seed must be an integer")
+        if self.plan_fingerprint is not None:
+            _require_text("plan_fingerprint", self.plan_fingerprint)
+        if self.planner_source not in ("deterministic", "llm", "deterministic_fallback"):
+            raise SchemaError("invalid planner_source: %s" % self.planner_source)
+        if self.planner_error is not None and not isinstance(self.planner_error, str):
+            raise SchemaError("planner_error must be a string or null")
+        if (self.planner_response_excerpt is not None
+                and not isinstance(self.planner_response_excerpt, str)):
+            raise SchemaError("planner_response_excerpt must be a string or null")
 
     def to_dict(self) -> Dict[str, Any]:
         data = asdict(self)

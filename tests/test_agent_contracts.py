@@ -8,7 +8,7 @@ from agent.patcher import ControlledPatcher
 from agent.policy import AgentPolicy, PolicyViolation
 from agent.registry import ToolDefinition, ToolRegistry
 from agent.schemas import ExperimentPlan, ExperimentResult, SchemaError, ToolOutput
-from agent.planner import FallbackPlanner, JsonPlannerAdapter
+from agent.planner import FallbackPlanner, JsonPlannerAdapter, planner_history_summary
 
 
 class NoopTool:
@@ -125,6 +125,41 @@ class ContractTests(unittest.TestCase):
         with self.assertRaises(Exception):
             invalid.next_plan("live", 0, [])
 
+    def test_llm_adapter_normalizes_null_optional_collections(self):
+        value = plan().to_dict()
+        value["changes"] = None
+        value["editable_paths"] = None
+        value["fallback"] = None
+        raw = json.dumps({"action": "plan", "plan": value})
+        generated = JsonPlannerAdapter(
+            lambda payload: (raw, 4),
+        ).next_plan("live", 4, [])
+        self.assertEqual([], generated.changes)
+        self.assertEqual([], generated.editable_paths)
+        self.assertEqual({}, generated.fallback)
+
+    def test_llm_shape_errors_are_actionable_not_type_errors(self):
+        value = plan().to_dict()
+        value["changes"] = [None]
+        raw = json.dumps({"action": "plan", "plan": value})
+        adapter = JsonPlannerAdapter(lambda payload: (raw, 1))
+        with self.assertRaisesRegex(ValueError, r"schema validation.*changes\[0\]"):
+            adapter.next_plan("live", 0, [])
+        self.assertEqual("schema_validation", adapter.last_error_stage)
+        self.assertIn('"changes": [null]', adapter.last_response_excerpt)
+
+    def test_planner_history_excludes_large_execution_evidence(self):
+        summary = planner_history_summary([{
+            "run_id": "r-E000", "status": "accepted", "primary": 0.6,
+            "params": {"x": 1}, "stdout_summary": "large output" * 1000,
+            "code_diff_summary": "large diff" * 1000,
+            "artifacts": ["private/path"],
+        }])
+        self.assertEqual("r-E000", summary[0]["run_id"])
+        self.assertNotIn("stdout_summary", summary[0])
+        self.assertNotIn("code_diff_summary", summary[0])
+        self.assertNotIn("artifacts", summary[0])
+
     def test_llm_stop_envelope_and_deterministic_fallback(self):
         stop = JsonPlannerAdapter(
             lambda payload: ('{"action":"stop","plan":null}', 2)
@@ -147,6 +182,35 @@ class ContractTests(unittest.TestCase):
         generated = fallback.next_plan("r", 0, [])
         self.assertIn("LLM fallback", generated.rationale)
         self.assertIn("RuntimeError", fallback.last_error)
+        self.assertIn("provider down", fallback.last_error)
+        self.assertEqual("deterministic_fallback", fallback.last_source)
+
+        stop_fallback = FallbackPlanner(stop, BackupPlanner())
+        continued = stop_fallback.next_plan("r", 0, [])
+        self.assertIsNotNone(continued)
+        self.assertIn("LLM requested stop", continued.rationale)
+        self.assertEqual(2, stop_fallback.token_usage)
+        self.assertIn('"action":"stop"', stop_fallback.last_response_excerpt)
+
+    def test_provider_failure_does_not_reuse_previous_iteration_token_count(self):
+        calls = [
+            (json.dumps({"action": "plan", "plan": plan().to_dict()}), 7),
+            RuntimeError("network unavailable"),
+        ]
+
+        def provider(payload):
+            del payload
+            response = calls.pop(0)
+            if isinstance(response, Exception):
+                raise response
+            return response
+
+        primary = JsonPlannerAdapter(provider)
+        primary.next_plan("live", 0, [])
+        self.assertEqual(7, primary.token_usage)
+        with self.assertRaisesRegex(RuntimeError, "network unavailable"):
+            primary.next_plan("live", 1, [])
+        self.assertEqual(0, primary.token_usage)
 
 
 

@@ -70,7 +70,7 @@ test 集 23,875 个用户里：
 baseline 已经吃掉可用区间的三成，剩余 headroom 是 0.27 而不是 0.41。
 
 FM 在 5 个随机种子上的 std 均为 **0.0008**。据此收敛判据取 **ε = 0.002（≈2.5σ）, N = 3**：
-连续 3 轮迭代 validation 主分提升不超过 0.002 即判定收敛。
+任何严格更高的 validation 主分都会更新当前最佳模型；只有当相对上一个显著改进点的累计提升超过 0.002 时，才重置收敛计数。连续 3 轮未达到该显著提升即判定收敛。
 
 > 自检：如果你的评测代码跑 `--model random` 得不到 primary ≈ 0.475（±0.001），说明 harness 有问题，先修它。
 
@@ -194,11 +194,11 @@ Safety and reproducibility guarantees:
 
 The production driver `agent.kuairand:build` connects the research loop to four NumPy FM variants under `models/`: official pointwise FM, random-negative Pairwise BPR, warmup/mixed hard-negative BPR, and leakage-safe history/time Pairwise BPR. The Agent receives validation metrics and project-relative artifact paths through one `ToolOutput` contract.
 
-The deterministic no-key planner uses prior evidence and cost to run the comparable baseline first, isolate the BPR loss next, and only then try the higher-cost history feature bundle. Hard-negative BPR remains available as a registered tool but is excluded from the default queue because the tested configuration was already rejected. See [`docs/kuairand_trial_lab_integration.md`](docs/kuairand_trial_lab_integration.md) for the integration boundary and three-seed evidence.
+The deterministic no-key planner uses prior evidence and cost to run the comparable baseline first, isolate the BPR loss next, and then try the higher-cost history feature bundle. It does not stop when those three canonical plans are exhausted: it anchors on the accepted validation-best configuration and generates untried, one-parameter neighbors from a declared search space. Each executed configuration stores its actual params, seed, feature flags, and a SHA-256 configuration fingerprint, so rejected, failed, and recovered trials are not repeated. Hard-negative BPR remains available as a registered tool but is excluded from the default queue because the tested configuration was already rejected. See [`docs/kuairand_trial_lab_integration.md`](docs/kuairand_trial_lab_integration.md) for the integration boundary and three-seed evidence.
 
 The committed full-data acceptance run selected history/time Pairwise at validation primary `0.603638`, a `+0.002168` improvement over its same-run pointwise baseline. This is a validation result, not a hidden-test claim.
 
-Run the full three-round, validation-only research loop without an API:
+Run a short three-round, validation-only comparison without an API:
 
 ```bash
 python3 -m agent \
@@ -207,6 +207,20 @@ python3 -m agent \
   --run-id bpr-history-demo \
   --max-iterations 3
 ```
+
+Run sustained optimization for up to 50 total experiments or six hours:
+
+```bash
+python3 -m agent \
+  --offline \
+  --data-dir /path/to/KuaiRand-Pure/data \
+  --run-id production-50-$(date +%Y%m%d-%H%M%S) \
+  --max-iterations 50 \
+  --max-wall-seconds 21600 \
+  --convergence-patience 12
+```
+
+`--max-iterations` is a ceiling, not a promise to execute that many trials. By project definition the default convergence rule remains `epsilon=0.002, patience=3`; the long-run command raises patience explicitly so the Agent can explore more of the legal neighborhood before stopping. Every strict validation improvement updates the best checkpoint and search anchor. The convergence counter resets only after the cumulative gain from the previous convergence reference exceeds epsilon, so a sequence of small real gains is preserved without disabling the stopping rule. Use a new `--run-id` for a new study; a run already persisted in `STOP` state remains immutable and resumable as completed evidence.
 
 Run the model-free orchestration fixture used by tests:
 
@@ -259,7 +273,7 @@ KUAI_AGENT_LLM_PROVIDER=openai OPENAI_API_KEY=... \
     --data-dir /path/to/KuaiRand-Pure/data
 ```
 
-The LLM is only a planner. Its JSON output still passes through the same schema, tool registry, parameter allowlist, path policy, frozen-file hashes, validation-only selector, and rollback controls. API/network/JSON failures fall back to the driver's deterministic planner and are noted in the plan rationale.
+The LLM is only a planner. OpenAI planning requests use a JSON schema; all providers still pass their output through local normalization and the same schema, tool registry, parameter allowlist, path policy, frozen-file hashes, configuration-fingerprint deduplication, validation-only selector, and rollback controls. Planner context contains a compact decision ledger rather than captured stdout, diffs, commands, or artifact payloads. API/network/JSON/schema failures fall back to the driver's deterministic planner, while `planner_source`, the actionable error, and a bounded response excerpt are persisted in the result and phase-event ledgers. An LLM `stop` response also falls back to deterministic search; the run stops only when the orchestrator reaches its iteration, wall-clock, convergence, or legal-search-space boundary.
 
 The synthetic driver intentionally demonstrates recovery without training. The default KuaiRand driver runs real recommendation experiments and keeps test scoring outside the Agent-visible interface.
 

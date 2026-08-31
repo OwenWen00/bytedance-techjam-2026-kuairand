@@ -78,12 +78,26 @@ class JsonHTTPClient:
 
 
 class OpenAIResponsesClient(JsonHTTPClient):
-    def complete_json(self, system_prompt: str, user_prompt: str) -> Tuple[str, int]:
+    def complete_json(self, system_prompt: str, user_prompt: str,
+                      response_schema: Optional[Dict[str, Any]] = None) -> Tuple[str, int]:
+        response_format: Dict[str, Any]
+        if response_schema is None:
+            response_format = {"type": "json_object"}
+        else:
+            response_format = {
+                "type": "json_schema",
+                "name": "experiment_plan_response",
+                "schema": response_schema,
+                # Local validation remains authoritative and provides better
+                # diagnostics across providers. Non-strict schema mode avoids
+                # rejecting provider-supported dynamic parameter dictionaries.
+                "strict": False,
+            }
         response = self._post("/responses", {
             "model": self.config.model,
             "instructions": system_prompt,
             "input": user_prompt,
-            "text": {"format": {"type": "json_object"}},
+            "text": {"format": response_format},
             "max_output_tokens": 4000,
             "store": False,
         })
@@ -105,7 +119,9 @@ class OpenAIResponsesClient(JsonHTTPClient):
 
 
 class DeepSeekChatClient(JsonHTTPClient):
-    def complete_json(self, system_prompt: str, user_prompt: str) -> Tuple[str, int]:
+    def complete_json(self, system_prompt: str, user_prompt: str,
+                      response_schema: Optional[Dict[str, Any]] = None) -> Tuple[str, int]:
+        del response_schema
         response = self._post("/chat/completions", {
             "model": self.config.model,
             "messages": [
@@ -139,24 +155,105 @@ PLAN_SYSTEM_PROMPT = """You are the planning component of a controlled ML resear
 Return exactly one JSON object and no prose. Never output shell commands or secrets.
 Choose only a registered tool and only declared editable paths. Use train and valid
 for model selection; never use test labels. Propose one primary change per iteration.
+The candidate_plans are canonical starting points, not the complete experiment queue.
+After canonical comparisons, propose an untried one-parameter neighbor of the accepted
+validation best using search_context. Do not stop merely because candidate_plans were
+already tried; iteration, wall-clock, convergence, and deterministic exhaustion are
+enforced outside you.
 The response envelope must be either {\"action\":\"stop\",\"plan\":null} or
 {\"action\":\"plan\",\"plan\":<ExperimentPlan object>}."""
+
+
+PLAN_RESPONSE_SCHEMA: Dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "action": {"type": "string", "enum": ["plan", "stop"]},
+        "plan": {
+            "anyOf": [
+                {"type": "null"},
+                {
+                    "type": "object",
+                    "properties": {
+                        "run_id": {"type": "string"},
+                        "iteration": {"type": "integer"},
+                        "parent_run_id": {"type": ["string", "null"]},
+                        "hypothesis": {"type": "string"},
+                        "rationale": {"type": "string"},
+                        "single_primary_change": {"type": "string"},
+                        "experiment_type": {"type": "string"},
+                        "model_name": {"type": "string"},
+                        "feature_flags": {"type": "object"},
+                        "params": {"type": "object"},
+                        "seed": {"type": "integer"},
+                        "timeout_minutes": {"type": "number"},
+                        "expected_cost": {"type": "string"},
+                        "validation_protocol": {"type": "string"},
+                        "acceptance_rule": {"type": "string"},
+                        "editable_paths": {
+                            "anyOf": [
+                                {"type": "null"},
+                                {"type": "array", "items": {"type": "string"}},
+                            ]
+                        },
+                        "requested_tool": {"type": "string"},
+                        "expected_signal": {"type": "string"},
+                        "fallback": {
+                            "anyOf": [{"type": "null"}, {"type": "object"}]
+                        },
+                        "changes": {
+                            "anyOf": [
+                                {"type": "null"},
+                                {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "object",
+                                        "properties": {
+                                            "path": {"type": "string"},
+                                            "old_text": {"type": "string"},
+                                            "new_text": {"type": "string"},
+                                        },
+                                        "required": ["path", "old_text", "new_text"],
+                                        "additionalProperties": False,
+                                    },
+                                },
+                            ]
+                        },
+                    },
+                    "required": [
+                        "run_id", "iteration", "parent_run_id", "hypothesis",
+                        "rationale", "single_primary_change", "experiment_type",
+                        "model_name", "feature_flags", "params", "seed",
+                        "timeout_minutes", "expected_cost", "validation_protocol",
+                        "acceptance_rule", "editable_paths", "requested_tool",
+                        "expected_signal", "fallback", "changes",
+                    ],
+                    "additionalProperties": False,
+                },
+            ]
+        },
+    },
+    "required": ["action", "plan"],
+    "additionalProperties": False,
+}
 
 
 class PlannerLLMProvider:
     """Turns orchestration history and driver candidates into a JSON plan request."""
 
     def __init__(self, client: JsonHTTPClient, tool_names: Iterable[str],
-                 candidate_plans: Optional[Iterable[Dict[str, Any]]] = None) -> None:
+                 candidate_plans: Optional[Iterable[Dict[str, Any]]] = None,
+                 search_context: Optional[Dict[str, Any]] = None) -> None:
         self.client = client
         self.tool_names = list(tool_names)
         self.candidate_plans = list(candidate_plans or [])
+        self.search_context = dict(search_context or {})
 
     def __call__(self, payload: Dict[str, Any]) -> Tuple[str, int]:
         request = {
             "task": payload,
             "registered_tools": self.tool_names,
             "candidate_plans": self.candidate_plans,
+            "search_context": self.search_context,
             "required_plan_fields": [
                 "run_id", "iteration", "parent_run_id", "hypothesis", "rationale",
                 "single_primary_change", "experiment_type", "model_name",
@@ -169,4 +266,5 @@ class PlannerLLMProvider:
         return self.client.complete_json(
             PLAN_SYSTEM_PROMPT,
             json.dumps(request, ensure_ascii=False, sort_keys=True),
+            response_schema=PLAN_RESPONSE_SCHEMA,
         )

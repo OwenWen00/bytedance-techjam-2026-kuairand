@@ -16,6 +16,7 @@ from .config import (
 from .llm import PlannerLLMProvider, build_client
 from .orchestrator import Orchestrator, load_driver
 from .planner import FallbackPlanner, JsonPlannerAdapter
+from .selector import ValidationSelector
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -29,6 +30,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--run-id", default=None)
     parser.add_argument("--max-iterations", type=int, default=3)
     parser.add_argument("--max-wall-seconds", type=float, default=21600.0)
+    parser.add_argument("--acceptance-epsilon", type=float, default=0.002,
+                        help="minimum validation-primary gain required for acceptance")
+    parser.add_argument("--convergence-patience", type=int, default=3,
+                        help="stop after this many consecutive non-improving experiments")
     parser.add_argument("--data-dir", default=None)
     parser.add_argument("--config", default=None, help="local LLM config path")
     parser.add_argument("--configure", action="store_true",
@@ -51,6 +56,11 @@ def _candidate_dicts(planner: object) -> List[dict]:
         if plan is not None and hasattr(plan, "to_dict"):
             output.append(plan.to_dict())
     return output
+
+
+def _planning_context(planner: object) -> dict:
+    factory = getattr(planner, "planning_context", None)
+    return factory() if callable(factory) else {}
 
 
 def _require_external_config_path(config_path: Path, project_root: str) -> None:
@@ -103,6 +113,7 @@ def run_cli(
             client = build_client(config, timeout_seconds=args.llm_timeout)
             provider = PlannerLLMProvider(
                 client, registry.names(), _candidate_dicts(deterministic_planner),
+                search_context=_planning_context(deterministic_planner),
             )
             plan_transform = getattr(deterministic_planner, "prepare_plan", None)
             llm_planner = JsonPlannerAdapter(provider, plan_transform=plan_transform)
@@ -112,6 +123,10 @@ def run_cli(
         run_id = args.run_id or ("run-" + uuid.uuid4().hex[:10])
         state = Orchestrator(
             args.project_root, registry, planner, run_id,
+            selector=ValidationSelector(
+                epsilon=args.acceptance_epsilon,
+                patience=args.convergence_patience,
+            ),
             max_iterations=args.max_iterations,
             max_wall_seconds=args.max_wall_seconds,
             data_dir=args.data_dir,

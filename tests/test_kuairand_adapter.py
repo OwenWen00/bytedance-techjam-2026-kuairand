@@ -4,8 +4,12 @@ import unittest
 from pathlib import Path
 
 from agent.kuairand import build
+from agent.orchestrator import Orchestrator
 from agent.planner import JsonPlannerAdapter
+from agent.registry import ToolDefinition, ToolRegistry
 from agent.runner import CommandResult
+from agent.schemas import ToolOutput, config_fingerprint
+from agent.selector import ValidationSelector
 from agent.tools import RunContext
 from models.trial_lab_core import validate_predictions
 
@@ -58,6 +62,22 @@ class FakeRunner:
 
 
 class KuaiRandAdapterTests(unittest.TestCase):
+    @staticmethod
+    def _record(plan, status, primary):
+        return {
+            "run_id": "%s-E%03d" % (plan.run_id, plan.iteration),
+            "status": status,
+            "primary": primary,
+            "single_primary_change": plan.single_primary_change,
+            "requested_tool": plan.requested_tool,
+            "params": dict(plan.params),
+            "seed": plan.seed,
+            "feature_flags": dict(plan.feature_flags),
+            "plan_fingerprint": config_fingerprint(
+                plan.requested_tool, plan.params, plan.seed, plan.feature_flags,
+            ),
+        }
+
     def test_registry_and_fallback_planner_follow_evidence_order(self):
         registry, planner = build("unused")
         self.assertEqual(
@@ -88,6 +108,86 @@ class KuaiRandAdapterTests(unittest.TestCase):
         )
         self.assertEqual("run_history_pairwise", history.requested_tool)
 
+    def test_planner_continues_with_unique_one_parameter_neighbors_of_best(self):
+        registry, planner = build("unused")
+        del registry
+        baseline = planner.next_plan("long", 0, [])
+        history = [self._record(baseline, "accepted", 0.600)]
+        pairwise = planner.next_plan("long", 1, history)
+        history.append(self._record(pairwise, "rejected", 0.601))
+        history_plan = planner.next_plan("long", 2, history)
+        history.append(self._record(history_plan, "accepted", 0.603))
+
+        tuned = planner.next_plan("long", 3, history)
+        self.assertEqual("run_history_pairwise", tuned.requested_tool)
+        changed = [
+            name for name in tuned.params
+            if tuned.params[name] != history_plan.params[name]
+        ]
+        self.assertEqual(1, len(changed))
+        self.assertIn("around validation-best", tuned.single_primary_change)
+        tuned_fingerprint = config_fingerprint(
+            tuned.requested_tool, tuned.params, tuned.seed, tuned.feature_flags,
+        )
+        self.assertNotIn(tuned_fingerprint, {
+            record["plan_fingerprint"] for record in history
+        })
+
+        history.append(self._record(tuned, "rejected", 0.602))
+        next_tuned = planner.next_plan("long", 4, history)
+        self.assertNotEqual(
+            tuned_fingerprint,
+            config_fingerprint(
+                next_tuned.requested_tool, next_tuned.params,
+                next_tuned.seed, next_tuned.feature_flags,
+            ),
+        )
+
+    def test_llm_duplicate_configuration_is_rejected_by_fingerprint(self):
+        registry, planner = build("unused")
+        del registry
+        baseline = planner.next_plan("demo", 0, [])
+        with self.assertRaisesRegex(ValueError, "previously executed"):
+            planner.prepare_plan(
+                baseline,
+                [self._record(baseline, "accepted", 0.600)],
+            )
+
+    def test_orchestrator_executes_a_fourth_dynamic_experiment(self):
+        class ScoredTool:
+            def run(self, plan, context):
+                del context
+                primary = {
+                    "run_pointwise_fm": 0.600,
+                    "run_pairwise_bpr": 0.601,
+                    "run_history_pairwise": 0.603,
+                }.get(plan.requested_tool, 0.599)
+                if plan.iteration >= 3:
+                    primary = 0.602
+                return ToolOutput(
+                    ["<in-process>", plan.requested_tool],
+                    primary + 0.05, primary - 0.05, primary, 0.0,
+                )
+
+        with tempfile.TemporaryDirectory() as directory:
+            source_registry, planner = build(directory)
+            registry = ToolRegistry()
+            for name in source_registry.names():
+                definition = source_registry.get(name)
+                registry.register(ToolDefinition(
+                    name, ScoredTool(), definition.param_validators,
+                    definition.required_params,
+                ))
+            state = Orchestrator(
+                directory, registry, planner, "dynamic-four",
+                selector=ValidationSelector(patience=12),
+                max_iterations=4,
+            ).run()
+            self.assertEqual("max_iterations", state.stop_reason)
+            self.assertEqual(4, len(state.history))
+            self.assertEqual("run_history_pairwise", state.history[3]["requested_tool"])
+            self.assertIn("around validation-best", state.history[3]["single_primary_change"])
+
     def test_registry_rejects_test_and_smoke_escape_hatches(self):
         registry, planner = build("unused")
         plan = planner.next_plan("run", 0, [])
@@ -117,6 +217,31 @@ class KuaiRandAdapterTests(unittest.TestCase):
         self.assertEqual(1, len(plan.changes))
         self.assertEqual("", plan.changes[0].old_text)
         self.assertIn("E001-active-variant.json", plan.changes[0].path)
+
+    def test_fourth_llm_neighborhood_plan_accepts_null_optional_collections(self):
+        registry, planner = build("unused")
+        del registry
+        baseline = planner.next_plan("live-four", 0, [])
+        history = [self._record(baseline, "accepted", 0.600)]
+        pairwise = planner.next_plan("live-four", 1, history)
+        history.append(self._record(pairwise, "rejected", 0.601))
+        history_plan = planner.next_plan("live-four", 2, history)
+        history.append(self._record(history_plan, "accepted", 0.603))
+        tuned = planner.next_plan("live-four", 3, history)
+
+        value = tuned.to_dict()
+        value["changes"] = None
+        value["editable_paths"] = None
+        value["fallback"] = None
+        raw = json.dumps({"action": "plan", "plan": value})
+        adapter = JsonPlannerAdapter(
+            lambda payload: (raw, 11), plan_transform=planner.prepare_plan,
+        )
+        generated = adapter.next_plan("live-four", 3, history)
+        self.assertEqual("run_history_pairwise", generated.requested_tool)
+        self.assertEqual(1, len(generated.changes))
+        self.assertIn("E003-active-variant.json", generated.changes[0].path)
+        self.assertIsNone(adapter.last_error_stage)
 
     def test_tool_translates_summary_and_redacts_data_path(self):
         with tempfile.TemporaryDirectory() as directory:

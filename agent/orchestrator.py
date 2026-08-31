@@ -17,13 +17,22 @@ from .policy import AgentPolicy, FrozenFileViolation
 from .recovery import RecoveryPolicy
 from .registry import ToolRegistry
 from .runner import RunnerError, SafeRunner
-from .schemas import ExperimentPlan, ExperimentResult, ToolOutput
+from .schemas import ExperimentPlan, ExperimentResult, ToolOutput, config_fingerprint
 from .selector import ValidationSelector
 from .state import RunState, StateStore
 from .tools import RunContext
 
 
 PHASES = ("INIT", "PLAN", "VALIDATE", "RUN", "EVALUATE", "SELECT", "LOG", "STOP")
+
+
+def _safe_plan_fingerprint(plan: ExperimentPlan) -> Optional[str]:
+    try:
+        return config_fingerprint(
+            plan.requested_tool, plan.params, plan.seed, plan.feature_flags,
+        )
+    except Exception:
+        return None
 
 
 class Orchestrator:
@@ -49,6 +58,21 @@ class Orchestrator:
         self.ledger = JsonlLedger(str(base / "experiments.jsonl"))
         self.events = JsonlLedger(str(base / "events.jsonl"))
         self.store = StateStore(str(base / "state.json"))
+
+    def _planner_diagnostics(self) -> Dict[str, Any]:
+        source = getattr(self.planner, "last_source", "deterministic")
+        if source not in ("deterministic", "llm", "deterministic_fallback"):
+            source = "deterministic"
+        error = getattr(self.planner, "last_error", None)
+        excerpt = getattr(self.planner, "last_response_excerpt", None)
+        return {
+            "planner_source": source,
+            "planner_error": error[:2000] if isinstance(error, str) else None,
+            "planner_error_stage": getattr(self.planner, "last_error_stage", None),
+            "planner_response_excerpt": (
+                excerpt[:2000] if isinstance(excerpt, str) else None
+            ),
+        }
 
     def _transition(self, state: RunState, phase: str, **details: Any) -> None:
         if phase not in PHASES:
@@ -79,6 +103,7 @@ class Orchestrator:
             command = error.result.argv
             stdout = error.result.stdout_summary
             stderr = error.result.stderr_summary
+        planner_diagnostics = self._planner_diagnostics()
         result = ExperimentResult(
             run_id="%s-E%03d" % (self.run_id, plan.iteration), iteration=plan.iteration,
             status="failed", code_version_id=git_sha(str(self.root)),
@@ -93,6 +118,12 @@ class Orchestrator:
             single_primary_change=plan.single_primary_change,
             decision_rationale="experiment failed after bounded recovery",
             requested_tool=plan.requested_tool, attempt=attempt,
+            params=dict(plan.params), seed=plan.seed,
+            feature_flags=dict(plan.feature_flags),
+            plan_fingerprint=_safe_plan_fingerprint(plan),
+            planner_source=planner_diagnostics["planner_source"],
+            planner_error=planner_diagnostics["planner_error"],
+            planner_response_excerpt=planner_diagnostics["planner_response_excerpt"],
         )
         result.validate()
         return result
@@ -116,8 +147,12 @@ class Orchestrator:
                     self.policy.normalize_relative(artifact)
                 self._transition(state, "EVALUATE", attempt=attempt)
                 selection = self.selector.select(output.primary, state)
-                self._transition(state, "SELECT", accepted=selection.accepted)
+                self._transition(
+                    state, "SELECT", accepted=selection.accepted,
+                    significant=selection.significant,
+                )
                 status = "accepted" if selection.accepted else "rejected"
+                planner_diagnostics = self._planner_diagnostics()
                 result = ExperimentResult(
                     run_id="%s-E%03d" % (self.run_id, plan.iteration), iteration=plan.iteration,
                     status=status, code_version_id=git_sha(str(self.root)),
@@ -133,7 +168,16 @@ class Orchestrator:
                     hypothesis=plan.hypothesis, rationale=plan.rationale,
                     single_primary_change=plan.single_primary_change,
                     decision_rationale=selection.rationale,
-                    requested_tool=plan.requested_tool, attempt=attempt,
+                    requested_tool=current.requested_tool, attempt=attempt,
+                    params=dict(current.params), seed=current.seed,
+                    feature_flags=dict(current.feature_flags),
+                    plan_fingerprint=config_fingerprint(
+                        current.requested_tool, current.params,
+                        current.seed, current.feature_flags,
+                    ),
+                    planner_source=planner_diagnostics["planner_source"],
+                    planner_error=planner_diagnostics["planner_error"],
+                    planner_response_excerpt=planner_diagnostics["planner_response_excerpt"],
                 )
                 result.validate()
                 self.selector.update(state, output.primary, result.run_id, selection)
@@ -144,7 +188,7 @@ class Orchestrator:
                 retry_plan, action = self.recovery.retry(current, attempt)
                 if retry_plan is None:
                     return self._failure_result(
-                        plan, config_path, parent_sha, error, attempt,
+                        current, config_path, parent_sha, error, attempt,
                         recovery_action, time.monotonic() - started,
                     )
                 self.policy.validate_plan(retry_plan)
@@ -173,6 +217,14 @@ class Orchestrator:
             iteration = state.next_iteration
             self._transition(state, "PLAN")
             plan = self.planner.next_plan(self.run_id, iteration, state.history)
+            planner_diagnostics = self._planner_diagnostics()
+            self.events.append({
+                "run_id": self.run_id,
+                "phase": "PLAN",
+                "event": "planner_decision",
+                "iteration": iteration,
+                **planner_diagnostics,
+            })
             if plan is None:
                 state.stop_reason = "planner_exhausted"
                 self._transition(state, "STOP", reason=state.stop_reason)
@@ -230,12 +282,18 @@ def main() -> None:
     parser.add_argument("--run-id", default=None)
     parser.add_argument("--max-iterations", type=int, default=3)
     parser.add_argument("--max-wall-seconds", type=float, default=21600.0)
+    parser.add_argument("--acceptance-epsilon", type=float, default=0.002)
+    parser.add_argument("--convergence-patience", type=int, default=3)
     parser.add_argument("--data-dir", default=None)
     args = parser.parse_args()
     run_id = args.run_id or ("run-" + uuid.uuid4().hex[:10])
     registry, planner = load_driver(args.driver, args.project_root)
     state = Orchestrator(
         args.project_root, registry, planner, run_id,
+        selector=ValidationSelector(
+            epsilon=args.acceptance_epsilon,
+            patience=args.convergence_patience,
+        ),
         max_iterations=args.max_iterations, max_wall_seconds=args.max_wall_seconds,
         data_dir=args.data_dir,
     ).run()

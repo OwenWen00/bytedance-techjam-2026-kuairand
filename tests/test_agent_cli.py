@@ -4,11 +4,21 @@ import json
 from pathlib import Path
 from unittest.mock import patch
 
-from agent.cli import run_cli
+from agent.cli import build_parser, run_cli
 from agent.config import LLMConfig, save_config
 
 
 class CLITests(unittest.TestCase):
+    def test_long_run_convergence_controls_are_explicit(self):
+        args = build_parser().parse_args([
+            "--acceptance-epsilon", "0.0015",
+            "--convergence-patience", "12",
+            "--max-iterations", "50",
+        ])
+        self.assertEqual(0.0015, args.acceptance_epsilon)
+        self.assertEqual(12, args.convergence_patience)
+        self.assertEqual(50, args.max_iterations)
+
     def test_offline_cli_runs_without_api_prompt(self):
         with tempfile.TemporaryDirectory() as directory:
             output = []
@@ -28,8 +38,9 @@ class CLITests(unittest.TestCase):
             def __init__(self):
                 self.calls = 0
 
-            def complete_json(self, system_prompt, user_prompt):
+            def complete_json(self, system_prompt, user_prompt, response_schema=None):
                 self.calls += 1
+                self.response_schema = response_schema
                 request = json.loads(user_prompt)
                 selected = request["candidate_plans"][0]
                 return json.dumps({"action": "plan", "plan": selected}), 9
@@ -54,6 +65,8 @@ class CLITests(unittest.TestCase):
             ledger = root / "experiments/logs/cli-llm/experiments.jsonl"
             record = json.loads(ledger.read_text(encoding="utf-8").splitlines()[0])
             self.assertEqual(9, record["token_usage"])
+            self.assertEqual("llm", record["planner_source"])
+            self.assertIsNone(record["planner_error"])
             self.assertNotIn("fake-secret", ledger.read_text(encoding="utf-8"))
 
     def test_cli_rejects_api_config_inside_project(self):
@@ -69,7 +82,8 @@ class CLITests(unittest.TestCase):
 
     def test_normal_first_run_prompts_for_provider_and_key(self):
         class FakeClient:
-            def complete_json(self, system_prompt, user_prompt):
+            def complete_json(self, system_prompt, user_prompt, response_schema=None):
+                self.response_schema = response_schema
                 selected = json.loads(user_prompt)["candidate_plans"][0]
                 return json.dumps({"action": "plan", "plan": selected}), 5
 

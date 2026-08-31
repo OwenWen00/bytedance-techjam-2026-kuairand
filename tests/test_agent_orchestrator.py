@@ -8,6 +8,8 @@ from agent.synthetic import build
 from agent.planner import Candidate, DeterministicPlanner
 from agent.registry import ToolDefinition, ToolRegistry
 from agent.schemas import ExperimentPlan
+from agent.selector import ValidationSelector
+from agent.state import RunState
 
 
 class OrchestratorTests(unittest.TestCase):
@@ -32,6 +34,9 @@ class OrchestratorTests(unittest.TestCase):
             self.assertIn("fallback", state.history[1]["recovery_action"])
             self.assertEqual(0, state.history[0]["token_usage"])
             self.assertEqual(0.0, state.history[0]["gpu_hours"])
+            self.assertEqual({"score": 0.6, "fail_once": False}, state.history[0]["params"])
+            self.assertEqual(0, state.history[0]["seed"])
+            self.assertEqual(64, len(state.history[0]["plan_fingerprint"]))
             ledger = root / "experiments/logs/demo/experiments.jsonl"
             self.assertEqual(3, len(ledger.read_text(encoding="utf-8").splitlines()))
             resumed = Orchestrator(str(root), registry, planner, "demo", max_iterations=3).run()
@@ -105,7 +110,7 @@ class OrchestratorTests(unittest.TestCase):
                 Candidate(_plan("baseline", 0.600), 4.0, 0.0),
                 Candidate(_plan("no gain one", 0.601), 3.0, 0.0),
                 Candidate(_plan("no gain two", 0.599), 2.0, 0.0),
-                Candidate(_plan("no gain three", 0.600), 1.0, 0.0),
+                Candidate(_plan("no gain three", 0.6001), 1.0, 0.0),
             ]
             state = Orchestrator(
                 str(root), registry, DeterministicPlanner(candidates),
@@ -113,6 +118,34 @@ class OrchestratorTests(unittest.TestCase):
             ).run()
             self.assertEqual("converged", state.stop_reason)
             self.assertEqual(4, len(state.history))
+
+    def test_incremental_new_bests_update_anchor_and_cumulative_gain_resets_convergence(self):
+        selector = ValidationSelector(epsilon=0.002, patience=3)
+        state = RunState("incremental")
+
+        baseline = selector.select(0.6000, state)
+        selector.update(state, 0.6000, "E000", baseline)
+        self.assertTrue(baseline.accepted)
+        self.assertTrue(baseline.significant)
+
+        first = selector.select(0.6009, state)
+        selector.update(state, 0.6009, "E001", first)
+        self.assertTrue(first.accepted)
+        self.assertFalse(first.significant)
+        self.assertEqual(0.6009, state.best_primary)
+        self.assertEqual(1, state.consecutive_no_improvement)
+
+        second = selector.select(0.6018, state)
+        selector.update(state, 0.6018, "E002", second)
+        self.assertTrue(second.accepted)
+        self.assertFalse(second.significant)
+
+        cumulative = selector.select(0.6021, state)
+        selector.update(state, 0.6021, "E003", cumulative)
+        self.assertTrue(cumulative.accepted)
+        self.assertTrue(cumulative.significant)
+        self.assertEqual(0, state.consecutive_no_improvement)
+        self.assertEqual(0.6021, state.convergence_reference_primary)
 
 
 if __name__ == "__main__":
