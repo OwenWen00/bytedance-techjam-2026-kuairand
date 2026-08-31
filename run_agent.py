@@ -21,6 +21,7 @@ def main() -> None:
     summary = run_agent(max_iterations=args.max_iterations, mode="real", config_path=args.experiment_config)
     print(f"iterations_run={summary['iterations_run']} accepted={summary['accepted']} rejected={summary['rejected']}")
     print(f"best_experiment_id={summary['best_experiment_id']} best_primary={summary['best_primary']:.4f}")
+    print(f"consecutive_no_improvement={summary['consecutive_no_improvement']}")
     print(f"converged={summary['converged']} stop_reason={summary['stop_reason']}")
     print(f"log_path={summary['log_path']}")
 

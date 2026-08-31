@@ -1,4 +1,5 @@
 import json
+import math
 import subprocess
 import tempfile
 import unittest
@@ -123,13 +124,56 @@ class E005RequirementsTests(unittest.TestCase):
             controller.current_best_primary = 0.55
             controller.current_best_experiment_id = "E001_fm"
             controller.best_checkpoint = None
-            with patch.object(controller, "_checkpoint_best_state", return_value={"experiment_id": "E001_fm", "primary": 0.55}):
-                summary = controller.run_real_loop(max_iterations=1, timeout_sec=1.0)
+            with patch.object(controller, "_checkpoint_best_state", return_value={"experiment_id": "E001_fm", "primary": 0.55}), \
+                 patch("agent.controller.time.perf_counter", side_effect=[10.0, 10.25, 20.0, 21.5]), \
+                 patch("agent.controller._current_git_revision", return_value="test-revision"):
+                summary = controller.run_real_loop(max_iterations=1)
 
             self.assertEqual(calls["count"], 2)
             self.assertEqual(summary["attempts_run"], 2)
             self.assertEqual(summary["recovery_attempts"], 1)
             self.assertEqual(summary["best_experiment_id"], "E005_retry")
+            records = [json.loads(line) for line in log_path.read_text(encoding="utf-8").splitlines()]
+            self.assertEqual(len(records), 2)
+            self.assertEqual(records[0]["status"], "failed")
+            self.assertEqual(records[0]["recovery"], "retrying_once")
+            self.assertEqual(records[0]["wall_clock_sec"], 0.25)
+            self.assertEqual(records[1]["status"], "completed")
+            self.assertEqual(records[1]["wall_clock_sec"], 1.5)
+            self.assertTrue(all(math.isfinite(record["wall_clock_sec"]) for record in records))
+            self.assertTrue(all(record["wall_clock_sec"] >= 0.0 for record in records))
+
+    def test_real_record_uses_measured_attempt_duration_and_reports_one_strike(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            log_path = Path(tmpdir) / "measured.jsonl"
+            controller = RealController(log_path=log_path)
+            plan = {
+                "experiment_id": "E006_timing_test",
+                "hypothesis": "A rejected real attempt records measured elapsed time.",
+                "strategy": "fm_validation",
+                "seed": 0,
+                "model_config": {"k": 4, "lr": 0.001, "batch": 16, "max_epochs": 2, "patience": 1},
+            }
+            controller.planner = type("P", (), {"next_plan": lambda self, max_iterations=None: plan})()
+            controller.runner.run = lambda plan_arg, timeout=None: {
+                "GAUC": 0.50,
+                "nDCG@5": 0.50,
+                "experiment_id": "E006_timing_test",
+                "command": "mocked real attempt",
+            }
+
+            with patch("agent.controller.time.perf_counter", side_effect=[10.0, 12.5]), \
+                 patch("agent.controller._current_git_revision", return_value="test-revision"):
+                summary = controller.run_real_loop(max_iterations=1)
+
+            record = json.loads(log_path.read_text(encoding="utf-8").strip())
+            self.assertEqual(record["wall_clock_sec"], 2.5)
+            self.assertTrue(math.isfinite(record["wall_clock_sec"]))
+            self.assertGreater(record["wall_clock_sec"], 0.0)
+            self.assertEqual(summary["iterations_run"], 1)
+            self.assertEqual(summary["consecutive_no_improvement"], 1)
+            self.assertFalse(summary["converged"])
+            self.assertIsNone(summary["stop_reason"])
 
     def test_failure_preserves_best_checkpoint(self):
         with tempfile.TemporaryDirectory() as tmpdir:

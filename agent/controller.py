@@ -49,6 +49,13 @@ def _resolve_reference_primary() -> float:
     return value
 
 
+def _elapsed_wall_clock_sec(started_at: float) -> float:
+    elapsed = float(time.perf_counter()) - float(started_at)
+    if not math.isfinite(elapsed) or elapsed < 0.0:
+        return 0.0
+    return elapsed
+
+
 class _BestCheckpoint:
     def __init__(self, checkpoint_dir: Path = CHECKPOINT_DIR):
         self.checkpoint_dir = Path(checkpoint_dir)
@@ -287,7 +294,14 @@ class RealController:
             if not candidate.exists():
                 return candidate
 
-    def _write_failure_record(self, plan: Dict[str, Any], error: str, command: str, recovery: str = "rolled_back_to_best_checkpoint") -> None:
+    def _write_failure_record(
+        self,
+        plan: Dict[str, Any],
+        error: str,
+        command: str,
+        wall_clock_sec: float,
+        recovery: str = "rolled_back_to_best_checkpoint",
+    ) -> None:
         record = {
             "experiment_id": plan.get("experiment_id", "unknown"),
             "parent_id": self.current_best_experiment_id,
@@ -301,7 +315,7 @@ class RealController:
             "decision": "ERROR",
             "error": str(error),
             "recovery": recovery,
-            "wall_clock_sec": 0.0,
+            "wall_clock_sec": wall_clock_sec,
             "llm_tokens": {"prompt": 0, "completion": 0, "total": 0},
             "manual_interventions": [],
             "timestamp": dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -364,13 +378,15 @@ class RealController:
                 plan_attempts += 1
                 self.attempts_run += 1
                 attempt_command = None
+                attempt_started_at = time.perf_counter()
                 try:
                     result = self.runner.run(plan, timeout=timeout_sec)
                     last_result = result
                     attempt_command = result.get("command")
-                    metrics = {"GAUC": result["GAUC"], "nDCG@5": result["nDCG@5"]}
-                    candidate_primary = 0.5 * (metrics["GAUC"] + metrics["nDCG@5"])
+                    evaluated = evaluate_agent_metrics({"GAUC": result["GAUC"], "nDCG@5": result["nDCG@5"]})
+                    candidate_primary = evaluated["primary"]
                     decision = choose_decision(candidate_primary, self.current_best_primary)
+                    attempt_wall_clock_sec = _elapsed_wall_clock_sec(attempt_started_at)
                     parent_id = self.current_best_experiment_id
                     record = {
                         "experiment_id": plan["experiment_id"],
@@ -380,12 +396,12 @@ class RealController:
                         "seed": plan.get("seed", 0),
                         "command": attempt_command or "real_validation: command_not_executed",
                         "git_revision": _current_git_revision(),
-                        "metrics": {"validation": {"GAUC": metrics["GAUC"], "nDCG@5": metrics["nDCG@5"], "primary": candidate_primary}},
+                        "metrics": {"validation": {"GAUC": evaluated["GAUC"], "nDCG@5": evaluated["nDCG@5"], "primary": candidate_primary}},
                         "status": "completed",
                         "decision": decision,
                         "error": "no_error",
                         "recovery": "no_recovery_required",
-                        "wall_clock_sec": 0.0,
+                        "wall_clock_sec": attempt_wall_clock_sec,
                         "llm_tokens": {"prompt": 0, "completion": 0, "total": 0},
                         "manual_interventions": [],
                         "timestamp": dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -401,11 +417,24 @@ class RealController:
                     break
                 except Exception as exc:
                     last_exc = exc
+                    attempt_wall_clock_sec = _elapsed_wall_clock_sec(attempt_started_at)
                     if plan_attempts == 1:
                         self.recovery_attempts += 1
-                        self._write_failure_record(plan, str(exc), attempt_command or "real_validation: command_not_executed", "retrying_once")
+                        self._write_failure_record(
+                            plan,
+                            str(exc),
+                            attempt_command or "real_validation: command_not_executed",
+                            attempt_wall_clock_sec,
+                            "retrying_once",
+                        )
                         continue
-                    self._write_failure_record(plan, str(exc), attempt_command or "real_validation: command_not_executed", "rolled_back_to_best_checkpoint")
+                    self._write_failure_record(
+                        plan,
+                        str(exc),
+                        attempt_command or "real_validation: command_not_executed",
+                        attempt_wall_clock_sec,
+                        "rolled_back_to_best_checkpoint",
+                    )
                     raise
             if last_result is None:
                 raise last_exc
@@ -422,6 +451,7 @@ class RealController:
             "best_primary": self.current_best_primary,
             "best_checkpoint": self.best_checkpoint,
             "log_path": str(self.log_path),
+            "consecutive_no_improvement": self.no_significant_improvement,
             "converged": self.converged,
             "stop_reason": self.stop_reason,
         }
