@@ -1,0 +1,56 @@
+[
+  {
+    "experiment_id": "dry_run_001",
+    "hypothesis": "A slightly lower synthetic validation primary should be rejected to preserve the official baseline.",
+    "configuration": {
+      "mode": "dry_run",
+      "synthetic": true,
+      "metrics_kind": "synthetic_validation",
+      "description": "Synthetic dry-run plan for rejecting the initial candidate.",
+      "base_config": "E001_fm"
+    },
+    "seed": 7,
+    "metrics": {
+      "GAUC": 0.5900,
+      "nDCG@5": 0.5200,
+      "primary": 0.5550,
+      "dry_run": true
+    }
+  },
+  {
+    "experiment_id": "dry_run_002",
+    "hypothesis": "A higher synthetic validation primary should be accepted and become the new best reference.",
+    "configuration": {
+      "mode": "dry_run",
+      "synthetic": true,
+      "metrics_kind": "synthetic_validation",
+      "description": "Synthetic dry-run plan for improving the current reference.",
+      "base_config": "E001_fm"
+    },
+    "seed": 11,
+    "metrics": {
+      "GAUC": 0.6700,
+      "nDCG@5": 0.6200,
+      "primary": 0.6450,
+      "dry_run": true
+    }
+  },
+  {
+    "experiment_id": "dry_run_003",
+    "hypothesis": "A marginally lower synthetic validation primary should be rejected even after an acceptance.",
+    "configuration": {
+      "mode": "dry_run",
+      "synthetic": true,
+      "metrics_kind": "synthetic_validation",
+      "description": "Synthetic dry-run plan for a normal reject after a valid accept.",
+      "base_config": "E001_fm"
+    },
+    "seed": 23,
+    "metrics": {
+      "GAUC": 0.6400,
+      "nDCG@5": 0.6100,
+      "primary": 0.6250,
+      "dry_run": true
+    }
+  }
+]
