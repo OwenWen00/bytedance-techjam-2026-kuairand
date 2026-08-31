@@ -21,6 +21,7 @@ STRATEGY_MODULES = {
     "validation_only_fm_k32": "experiments.fm_validation",
     "recovery_demo": "experiments.recovery_demo",
     "fm_history_validation": "experiments.fm_history_validation",
+    "hard_negative_bpr_fm": "experiments.hard_negative_bpr",
 }
 
 STRATEGY_ALLOWED_KEYS = {
@@ -31,6 +32,7 @@ STRATEGY_ALLOWED_KEYS = {
     "pairwise_bpr_fm": {"k", "lr", "batch", "max_epochs", "patience", "max_pairs_per_user", "fields"},
     "recovery_demo": {"failure_mode", "mode", "sleep_sec", "ga", "ndcg"},
     "fm_history_validation": {"k", "lr", "batch", "max_epochs", "patience"},
+    "hard_negative_bpr_fm": {"k", "lr", "batch", "max_epochs", "patience", "max_pairs_per_user", "hard_negative_candidates", "fields"},
 }
 
 
@@ -130,6 +132,7 @@ def _build_strategy_command(strategy: str, config: Dict[str, Any], experiment_id
         "max_epochs": "--max-epochs",
         "patience": "--patience",
         "max_pairs_per_user": "--max-pairs-per-user",
+        "hard_negative_candidates": "--hard-negative-candidates",
     }
     for key, flag in model_map.items():
         if key in config:

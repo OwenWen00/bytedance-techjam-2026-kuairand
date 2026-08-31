@@ -16,6 +16,7 @@ STRATEGY_MODULES = {
     "validation_only_fm_k32": "experiments.fm_validation",
     "recovery_demo": "experiments.recovery_demo",
     "fm_history_validation": "experiments.fm_history_validation",
+    "hard_negative_bpr_fm": "experiments.hard_negative_bpr",
 }
 
 
